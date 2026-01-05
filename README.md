@@ -34,7 +34,7 @@
 
 ### Example Output
 
-![GON Logger Test Output](https://imgur.com/a/DaEOcrR)
+![GON Logger Test Output](assets/test-output.png)
 
 *Figure: Educational demonstration showing data collection and reporting format via Discord webhook. This controlled test environment showcases the type of system and browser information that can be extracted, emphasizing the importance of proper security measures.*
 
